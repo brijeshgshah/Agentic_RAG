@@ -11,17 +11,22 @@ from typing import List, Dict
 import os
 
 class ModularRAGPipeline:
-    def __init__(self, index_name: str = "nikhil-agent-module-gemini"):
+    def __init__(self, index_name: str = None):
         """
         Initialize the modular RAG pipeline
         
         Args:
-            index_name: Name of the Pinecone index to use
+            index_name: Name of the Pinecone index to use. Defaults to
+                PINECONE_INDEX_NAME or "single-agentic-rag".
         """
         print("\n" + "="*60)
         print("🚀 Initializing Modular RAG Pipeline")
         print("="*60)
         
+        index_name = index_name or os.getenv(
+            "PINECONE_INDEX_NAME", "single-agentic-rag"
+        )
+
         # Initialize all modules
         self.embeddings_module = EmbeddingsModule()
         self.preprocessor = DocumentPreprocessor()
@@ -158,6 +163,7 @@ class ModularRAGPipeline:
             'chunk_size': self.preprocessor.chunk_size,
             'chunk_overlap': self.preprocessor.chunk_overlap,
             'index_name': self.vector_store.index_name,
+            'namespace': self.vector_store.namespace,
             'llm_model': self.response_generator.model_name,
             'temperature': self.response_generator.temperature
         }
@@ -166,7 +172,7 @@ class ModularRAGPipeline:
 # Example usage
 if __name__ == "__main__":
     # Initialize the pipeline
-    rag = ModularRAGPipeline(index_name="nikhil-agent-module-gemini")
+    rag = ModularRAGPipeline()
     
     # Ingest documents
     print("\n📚 Starting document ingestion...")

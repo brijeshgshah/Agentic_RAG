@@ -1,7 +1,7 @@
 """
 Vector Store Module - Handles Pinecone operations (upsert/query)
 """
-from pinecone import Pinecone
+from pinecone import Pinecone, ServerlessSpec
 import os
 from dotenv import load_dotenv
 from typing import List, Dict
@@ -10,15 +10,46 @@ import uuid
 load_dotenv()
 
 class VectorStore:
-    def __init__(self, index_name: str):
+    def __init__(self, index_name: str, dimension: int = 384, namespace: str = None):
         """
         Initialize the vector store
         
         Args:
             index_name: Name of the Pinecone index
+            dimension: Vector dimension used by the embedding model
+            namespace: Namespace used to isolate this application's vectors
         """
+        api_key = os.getenv("PINECONE_API_KEY")
+        if not api_key:
+            raise ValueError("PINECONE_API_KEY is not set")
+
+        self.pc = Pinecone(api_key=api_key)
+        self.namespace = namespace or os.getenv("PINECONE_NAMESPACE")
+
         self.index_name = index_name
-        self.pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+
+        if not self.pc.has_index(index_name):
+            cloud = os.getenv("PINECONE_CLOUD", "aws")
+            region = os.getenv("PINECONE_REGION", "us-east-1")
+            print(
+                f"Pinecone index '{index_name}' was not found; "
+                f"creating it in {cloud}/{region}..."
+            )
+            self.pc.create_index(
+                name=index_name,
+                dimension=dimension,
+                metric="cosine",
+                spec=ServerlessSpec(cloud=cloud, region=region),
+            )
+        else:
+            index_description = self.pc.describe_index(index_name)
+            if index_description.dimension != dimension:
+                raise ValueError(
+                    f"Pinecone index '{index_name}' has dimension "
+                    f"{index_description.dimension}, but the embedding model "
+                    f"requires dimension {dimension}."
+                )
+
         self.index = self.pc.Index(index_name)
         print(f"✅ Vector store initialized with index: {index_name}")
     
@@ -60,7 +91,10 @@ class VectorStore:
             })
         
         try:
-            self.index.upsert(vectors=vectors_to_upsert)
+            self.index.upsert(
+                vectors=vectors_to_upsert,
+                namespace=self.namespace,
+            )
             print(f"✅ Upserted {len(vectors_to_upsert)} vectors to index")
             return True
         except Exception as e:
@@ -87,7 +121,8 @@ class VectorStore:
             results = self.index.query(
                 vector=query_embedding,
                 top_k=top_k,
-                include_metadata=include_metadata
+                include_metadata=include_metadata,
+                namespace=self.namespace,
             )
             
             matches = []
@@ -130,7 +165,7 @@ class VectorStore:
         """
         try:
             # Delete all vectors
-            self.index.delete(delete_all=True)
+            self.index.delete(delete_all=True, namespace=self.namespace)
             print(f"✅ Deleted all vectors from index")
             return True
         except Exception as e:

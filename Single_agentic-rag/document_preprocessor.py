@@ -2,7 +2,9 @@
 Document Preprocessor Module - Handles text splitting and cleaning
 """
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from typing import List
+from pathlib import Path
+from typing import Dict, List
+import csv
 
 class DocumentPreprocessor:
     def __init__(self, chunk_size=200, chunk_overlap=50):
@@ -103,3 +105,36 @@ class DocumentPreprocessor:
         except Exception as e:
             print(f"❌ Error processing file: {e}")
             return []
+
+    def process_csv_directory(self, directory_path: str) -> List[Dict]:
+        """Convert every CSV row in a directory into searchable records."""
+        directory = Path(directory_path)
+        if not directory.is_dir():
+            print(f"❌ Knowledgebase directory not found: {directory_path}")
+            return []
+
+        records = []
+        for csv_path in sorted(directory.glob("*.csv")):
+            try:
+                with csv_path.open("r", encoding="utf-8-sig", newline="") as file:
+                    reader = csv.DictReader(file)
+                    for row_number, row in enumerate(reader, start=2):
+                        fields = [
+                            f"{column.replace('_', ' ')}: {value}"
+                            for column, value in row.items()
+                            if column and value not in (None, "")
+                        ]
+                        text = self.clean_text(". ".join(fields))
+                        if text:
+                            records.append({
+                                "text": text,
+                                "metadata": {
+                                    "source": csv_path.name,
+                                    "row_number": row_number,
+                                    "record_type": csv_path.stem,
+                                },
+                            })
+            except (OSError, csv.Error) as error:
+                print(f"❌ Error processing CSV {csv_path}: {error}")
+
+        return records

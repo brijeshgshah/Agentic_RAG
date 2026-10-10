@@ -10,19 +10,22 @@ from typing import Dict
 load_dotenv()
 
 class ResponseGenerator:
-    def __init__(self, model_name="claude-3-5-sonnet-20241022", temperature=0.7):
+    def __init__(self, model_name=None, temperature=0.7):
         """
         Initialize the response generator
         
         Args:
-            model_name: Name of the LLM model to use
+            model_name: Name of the LLM model to use. Defaults to the
+                ANTHROPIC_MODEL environment variable or Claude Sonnet 4.6.
             temperature: Temperature for response generation
         """
-        self.model_name = model_name
+        self.model_name = model_name or os.getenv(
+            "ANTHROPIC_MODEL", "claude-sonnet-4-6"
+        )
         self.temperature = temperature
         
         self.llm = ChatAnthropic(
-            model=model_name,
+            model=self.model_name,
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
             temperature=temperature
         )
@@ -46,7 +49,7 @@ Instructions:
 Answer:"""
         )
         
-        print(f"✅ Response generator initialized with model: {model_name}")
+        print(f"✅ Response generator initialized with model: {self.model_name}")
     
     def generate_response(self, query: str, context_chunks: list) -> str:
         """

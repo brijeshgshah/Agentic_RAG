@@ -3,11 +3,13 @@ name = "multi_agentic_rag"
 version = "0.1.0"
 description = "Multi-Agent RAG system with LangGraph orchestration across multiple Pinecone indexes for orders, products, and support domains"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10,<4.0"
 dependencies = [
     "python-dotenv>=1.0.0",
     "langchain>=0.1.0",
+    "langchain-anthropic>=1.0.0",
     "langchain-google-genai>=1.0.0",
+    "langchain-huggingface>=1.0.0",
     "langchain-community>=0.0.20",
     "langchain-pinecone>=0.1.0",
     "langchain-text-splitters>=0.0.1",

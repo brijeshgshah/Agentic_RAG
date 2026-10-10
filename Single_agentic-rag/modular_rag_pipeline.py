@@ -11,17 +11,22 @@ from typing import List, Dict
 import os
 
 class ModularRAGPipeline:
-    def __init__(self, index_name: str = "nikhil-agent-module-gemini"):
+    def __init__(self, index_name: str = None):
         """
         Initialize the modular RAG pipeline
         
         Args:
-            index_name: Name of the Pinecone index to use
+            index_name: Name of the Pinecone index to use. Defaults to the
+                PINECONE_INDEX_NAME environment variable or "single-agentic-rag".
         """
         print("\n" + "="*60)
         print("🚀 Initializing Modular RAG Pipeline")
         print("="*60)
         
+        index_name = index_name or os.getenv(
+            "PINECONE_INDEX_NAME", "single-agentic-rag"
+        )
+
         # Initialize all modules
         self.embeddings_module = EmbeddingsModule()
         self.preprocessor = DocumentPreprocessor()
@@ -78,6 +83,35 @@ class ModularRAGPipeline:
         else:
             print("❌ Failed to store vectors")
         
+        return success
+
+    def ingest_knowledgebase(self, directory_path: str = "knowledgebase"):
+        """Ingest all CSV rows from the knowledgebase directory."""
+        print(f"\n📄 Ingesting CSV knowledgebase from: {directory_path}")
+        print("-" * 60)
+
+        records = self.preprocessor.process_csv_directory(directory_path)
+        if not records:
+            print("❌ No CSV records found")
+            return False
+
+        texts = [record["text"] for record in records]
+        metadata = [record["metadata"] for record in records]
+        print(f"✅ Loaded {len(records)} rows from the CSV knowledgebase")
+
+        print("\n🔗 Generating embeddings...")
+        embeddings = self.embeddings_module.generate_embeddings_batch(texts)
+        if not embeddings:
+            print("❌ Failed to generate embeddings")
+            return False
+
+        print(f"✅ Generated {len(embeddings)} embeddings")
+        print("\n💾 Storing CSV records in Pinecone...")
+        success = self.vector_store.upsert_vectors(texts, embeddings, metadata)
+        if success:
+            print("✅ Knowledgebase ingestion complete!")
+        else:
+            print("❌ Failed to store knowledgebase records")
         return success
     
     def query(self, question: str, top_k: int = 3) -> Dict:
@@ -158,6 +192,7 @@ class ModularRAGPipeline:
             'chunk_size': self.preprocessor.chunk_size,
             'chunk_overlap': self.preprocessor.chunk_overlap,
             'index_name': self.vector_store.index_name,
+            'namespace': self.vector_store.namespace,
             'llm_model': self.response_generator.model_name,
             'temperature': self.response_generator.temperature
         }
@@ -166,7 +201,7 @@ class ModularRAGPipeline:
 # Example usage
 if __name__ == "__main__":
     # Initialize the pipeline
-    rag = ModularRAGPipeline(index_name="nikhil-agent-module-gemini")
+    rag = ModularRAGPipeline()
     
     # Ingest documents
     print("\n📚 Starting document ingestion...")

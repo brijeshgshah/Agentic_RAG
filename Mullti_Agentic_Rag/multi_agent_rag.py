@@ -1,5 +1,5 @@
 """
-Multi-Agent RAG with LangGraph over multiple Pinecone indexes
+Multi-Agent RAG with LangGraph over Pinecone domain namespaces
 
 Agents:
  - Orchestrator: routes query to domain(s): orders, products, support
@@ -8,19 +8,20 @@ Agents:
  - Critic: checks gaps/consistency and requests follow-up retrieval if needed
  - Synthesizer: produces final answer
 
-Vector stores: Pinecone indexes per domain using sentence-transformers embeddings
-LLM: Gemini 2.5 Flash
+Vector store: one Pinecone index with a namespace per domain
+LLM: Anthropic Claude
 """
 import os
-from typing import Dict, Any, List
+import csv
+from typing import Any, Dict, List, TypedDict
 
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
-from langchain_community.embeddings import SentenceTransformerEmbeddings
+from langchain_core.documents import Document
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import CSVLoader
 from langchain_pinecone import PineconeVectorStore
-from langgraph.graph import Graph, END
+from langgraph.graph import StateGraph, END
 
 from pinecone_multi_index import PineconeIndexManager, DEFAULT_INDEX_CONFIGS
 
@@ -28,21 +29,36 @@ from pinecone_multi_index import PineconeIndexManager, DEFAULT_INDEX_CONFIGS
 load_dotenv()
 
 
-ORDERS_INDEX = "orders-index"
-PRODUCTS_INDEX = "products-index"
-SUPPORT_INDEX = "support-index"
+RAG_INDEX = os.getenv("PINECONE_INDEX_NAME", "single-agentic-rag")
+ORDERS_NAMESPACE = "orders"
+PRODUCTS_NAMESPACE = "products"
+SUPPORT_NAMESPACE = "support"
+
+
+class RAGState(TypedDict, total=False):
+    question: str
+    domains: List[str]
+    retrieved_docs: List[Document]
+    context: str
+    findings: str
+    critique: str
+    answer: str
 
 
 def get_llm() -> ChatAnthropic:
     return ChatAnthropic(
-        model="claude-3-5-sonnet-20241022",
+        model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
         temperature=0.3,
     )
 
 
-def get_embeddings() -> SentenceTransformerEmbeddings:
-    return SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
+def get_embeddings() -> HuggingFaceEmbeddings:
+    return HuggingFaceEmbeddings(
+        model_name="all-MiniLM-L6-v2",
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={"normalize_embeddings": True},
+    )
 
 
 def ensure_indexes() -> None:
@@ -50,41 +66,62 @@ def ensure_indexes() -> None:
     mgr.ensure_indexes(DEFAULT_INDEX_CONFIGS)
 
 
+def load_csv_documents(csv_path: str) -> List[Document]:
+    """Load CSV rows as LangChain documents without deprecated loaders."""
+    documents = []
+    with open(csv_path, "r", encoding="utf-8-sig", newline="") as file:
+        reader = csv.DictReader(file)
+        for row_number, row in enumerate(reader, start=2):
+            content = "\n".join(
+                f"{column.replace('_', ' ')}: {value}"
+                for column, value in row.items()
+                if column and value not in (None, "")
+            )
+            if content:
+                documents.append(
+                    Document(
+                        page_content=content,
+                        metadata={"source": csv_path, "row": row_number},
+                    )
+                )
+    return documents
+
+
 def ingest_csvs(knowledge_dir: str = "knowledgebase") -> None:
     """Ingest CSVs into their respective Pinecone indexes.
 
-    - order.csv -> orders-index
-    - product.csv -> products-index
-    - support_catalogue.csv -> support-index
+    - order.csv -> orders namespace
+    - product.csv -> products namespace
+    - support_catalogue.csv -> support namespace
     """
     ensure_indexes()
 
     embeddings = get_embeddings()
 
     mapping = [
-        (os.path.join(knowledge_dir, "order.csv"), ORDERS_INDEX),
-        (os.path.join(knowledge_dir, "product.csv"), PRODUCTS_INDEX),
-        (os.path.join(knowledge_dir, "support_catalogue.csv"), SUPPORT_INDEX),
+        (os.path.join(knowledge_dir, "order.csv"), ORDERS_NAMESPACE),
+        (os.path.join(knowledge_dir, "product.csv"), PRODUCTS_NAMESPACE),
+        (os.path.join(knowledge_dir, "support_catalogue.csv"), SUPPORT_NAMESPACE),
     ]
 
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
 
-    for csv_path, index_name in mapping:
+    for csv_path, namespace in mapping:
         if not os.path.exists(csv_path):
             print(f"⚠️ Missing CSV: {csv_path}")
             continue
-        print(f"📥 Ingesting {csv_path} -> {index_name}")
-        loader = CSVLoader(file_path=csv_path)
-        docs = loader.load()
+        print(f"📥 Ingesting {csv_path} -> {RAG_INDEX}/{namespace}")
+        docs = load_csv_documents(csv_path)
         chunks = splitter.split_documents(docs)
 
         # Upsert into Pinecone via LangChain vectorstore
         PineconeVectorStore.from_documents(
             documents=chunks,
             embedding=embeddings,
-            index_name=index_name,
+            index_name=RAG_INDEX,
+            namespace=namespace,
         )
-        print(f"✅ Ingested {len(chunks)} chunks into {index_name}")
+        print(f"✅ Ingested {len(chunks)} chunks into namespace '{namespace}'")
 
 
 class MultiAgentRAG:
@@ -94,9 +131,21 @@ class MultiAgentRAG:
         ensure_indexes()
 
         # Build retrievers for each index
-        self.orders_vs = PineconeVectorStore(index_name=ORDERS_INDEX, embedding=self.embeddings)
-        self.products_vs = PineconeVectorStore(index_name=PRODUCTS_INDEX, embedding=self.embeddings)
-        self.support_vs = PineconeVectorStore(index_name=SUPPORT_INDEX, embedding=self.embeddings)
+        self.orders_vs = PineconeVectorStore(
+            index_name=RAG_INDEX,
+            namespace=ORDERS_NAMESPACE,
+            embedding=self.embeddings,
+        )
+        self.products_vs = PineconeVectorStore(
+            index_name=RAG_INDEX,
+            namespace=PRODUCTS_NAMESPACE,
+            embedding=self.embeddings,
+        )
+        self.support_vs = PineconeVectorStore(
+            index_name=RAG_INDEX,
+            namespace=SUPPORT_NAMESPACE,
+            embedding=self.embeddings,
+        )
 
         self.orders_ret = self.orders_vs.as_retriever(search_kwargs={"k": 5})
         self.products_ret = self.products_vs.as_retriever(search_kwargs={"k": 5})
@@ -185,7 +234,7 @@ class MultiAgentRAG:
 
     # ============ Graph ============
     def _build_graph(self):
-        g = Graph()
+        g = StateGraph(RAGState)
         g.add_node("orchestrator", self.orchestrate)
         g.add_node("researcher", self.research)
         g.add_node("analyst", self.analyze)
@@ -212,9 +261,9 @@ def main():
 
     rag = MultiAgentRAG()
     queries = [
-        "Where is my order #1234 and expected delivery date?",
-        "List features of product ABC-900 and its price",
-        "How to reset my password and contact support?",
+        "What is the status of order 5001?",
+        "What are the features and price of the Wireless Mouse?",
+        "How do I return a product?",
     ]
     for q in queries:
         print("\n" + "=" * 60)

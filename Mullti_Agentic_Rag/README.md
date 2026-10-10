@@ -35,11 +35,11 @@ A sophisticated multi-agent RAG system with domain-specific knowledge bases and 
 
 ### Knowledge Bases
 
-| Domain | CSV File | Pinecone Index | Dimension |
-|--------|----------|----------------|-----------|
-| Orders | `order.csv` | `orders-index` | 384 |
-| Products | `product.csv` | `products-index` | 384 |
-| Support | `support_catalogue.csv` | `support-index` | 384 |
+| Domain | CSV File | Pinecone Index | Namespace | Dimension |
+|--------|----------|----------------|-----------|-----------|
+| Orders | `order.csv` | `single-agentic-rag` | `orders` | 384 |
+| Products | `product.csv` | `single-agentic-rag` | `products` | 384 |
+| Support | `support_catalogue.csv` | `single-agentic-rag` | `support` | 384 |
 
 ### Embeddings
 
@@ -61,8 +61,10 @@ uv sync
 
 1. **Create `.env` file** (in parent directory):
    ```bash
-   GOOGLE_API_KEY=your_key
-   PC_API_KEY=your_pinecone_key
+   ANTHROPIC_API_KEY=your_anthropic_key
+   PINECONE_API_KEY=your_pinecone_key
+   ANTHROPIC_MODEL=claude-sonnet-4-6
+   PINECONE_INDEX_NAME=single-agentic-rag
    ```
 
 2. **Prepare knowledge bases**:
@@ -74,15 +76,16 @@ uv sync
 #### First Run: Ingest Data
 
 ```bash
-INGEST=true uv run python multi_agent_rag.py
+$env:INGEST="true"
+uv run .\multi_agent_rag.py
 ```
 
-This creates Pinecone indexes and ingests CSV data.
+This creates the shared Pinecone index if needed and ingests each CSV into its domain namespace.
 
 #### Subsequent Runs: Query
 
 ```bash
-uv run python multi_agent_rag.py
+uv run .\multi_agent_rag.py
 ```
 
 #### Custom Queries
@@ -128,9 +131,7 @@ Edit `pinecone_multi_index.py`:
 
 ```python
 DEFAULT_INDEX_CONFIGS = [
-    {"name": "orders-index", "dimension": 384, "metric": "cosine"},
-    {"name": "products-index", "dimension": 384, "metric": "cosine"},
-    {"name": "support-index", "dimension": 384, "metric": "cosine"},
+    {"name": "single-agentic-rag", "dimension": 384, "metric": "cosine"},
 ]
 ```
 
@@ -140,8 +141,8 @@ Edit `multi_agent_rag.py`:
 
 ```python
 def get_llm():
-    return ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+    return ChatAnthropic(
+        model="claude-sonnet-4-6",
         temperature=0.3,  # Adjust for creativity vs. determinism
     )
 ```
@@ -278,7 +279,8 @@ mgr = PineconeIndexManager()
 ## 📚 Dependencies
 
 - `langchain` - LangChain framework
-- `langchain-google-genai` - Gemini LLM
+- `langchain-anthropic` - Claude LLM
+- `langchain-huggingface` - Hugging Face embedding integration
 - `langchain-community` - Community components
 - `langchain-pinecone` - Pinecone integration
 - `langchain-text-splitters` - Text splitting

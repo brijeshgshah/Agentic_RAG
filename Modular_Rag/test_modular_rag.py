@@ -9,7 +9,7 @@ def main():
     print("="*70)
     
     # Initialize the pipeline
-    rag = ModularRAGPipeline(index_name="nikhil-agent-module-gemini")
+    rag = ModularRAGPipeline()
     
     # Show pipeline info
     print("\n📋 Pipeline Configuration:")

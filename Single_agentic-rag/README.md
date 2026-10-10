@@ -112,7 +112,7 @@ Mappings:
 from modular_rag_pipeline import ModularRAGPipeline
 
 # Initialize the pipeline
-rag = ModularRAGPipeline(index_name="nikhil-agent-module-gemini")
+rag = ModularRAGPipeline()
 
 # Ingest documents
 rag.ingest_documents("sample.txt")

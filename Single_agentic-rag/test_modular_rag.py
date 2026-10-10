@@ -9,7 +9,7 @@ def main():
     print("="*70)
     
     # Initialize the pipeline
-    rag = ModularRAGPipeline(index_name="nikhil-agent-module-gemini")
+    rag = ModularRAGPipeline()
     
     # Show pipeline info
     print("\n📋 Pipeline Configuration:")
@@ -21,9 +21,9 @@ def main():
     # Ingest documents (optional - skip if already indexed)
     print("\n📚 Document Ingestion:")
     print("-" * 70)
-    ingest = input("Do you want to re-ingest documents? (y/n): ").lower()
+    ingest = input("Do you want to ingest the CSV knowledgebase? (y/n): ").lower()
     if ingest == 'y':
-        rag.ingest_documents("sample.txt")
+        rag.ingest_knowledgebase("knowledgebase")
     else:
         print("⏭️ Skipping ingestion (using existing indexed data)")
     
